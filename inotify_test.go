@@ -12,7 +12,7 @@ import (
 )
 
 func TestInotify(t *testing.T) {
-	td, _ := ioutil.TempDir("","")
+	td, _ := ioutil.TempDir("", "")
 	defer os.RemoveAll(td)
 
 	in, err := New()
@@ -27,12 +27,12 @@ func TestInotify(t *testing.T) {
 
 	event1, err := in.Read()
 	require.NoError(t, err)
-	assert.Equal(t, IN_CREATE, event1.Mask & IN_CREATE)
+	assert.Equal(t, IN_CREATE, event1.Mask&IN_CREATE)
 	assert.Equal(t, path.Base(tf.Name()), event1.Name)
 
 	event2, err := in.Read()
 	require.NoError(t, err)
-	assert.Equal(t, IN_DELETE, event2.Mask & IN_DELETE)
+	assert.Equal(t, IN_DELETE, event2.Mask&IN_DELETE)
 	assert.Equal(t, path.Base(tf.Name()), event2.Name)
 
 	err = in.RemoveWatch(w)
@@ -40,15 +40,15 @@ func TestInotify(t *testing.T) {
 
 	event3, err := in.Read()
 	require.NoError(t, err)
-	assert.Equal(t, IN_IGNORED, event3.Mask & IN_IGNORED)
+	assert.Equal(t, IN_IGNORED, event3.Mask&IN_IGNORED)
 	assert.Equal(t, int32(w), event3.Wd)
 
 	tf, err = ioutil.TempFile(td, "")
 	require.NoError(t, err)
 	tf.Close()
-	os.Remove(path.Join(td,tf.Name()))
+	os.Remove(path.Join(td, tf.Name()))
 
-	in.SetReadDeadline(time.Now().Add(time.Second))
+	in.file.SetReadDeadline(time.Now().Add(time.Second))
 	event4, err := in.Read()
 	assert.True(t, os.IsTimeout(err))
 	assert.Equal(t, Event{}, event4)

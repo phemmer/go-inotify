@@ -61,11 +61,9 @@ const (
 
 type InotifyWatchDesc int32
 type Inotify struct {
-	*os.File
-	// FD is provided as calling File.Fd() puts the file into blocking mode,
-	// which breaks deadlines and Discard().
-	FD     int
-	Buffer *bytes.Buffer
+	file    *os.File
+	rawConn syscall.RawConn
+	Buffer  *bytes.Buffer
 }
 
 // New constructs a new Inotify watcher.
@@ -75,23 +73,48 @@ func New() (*Inotify, error) {
 		return nil, err
 	}
 
+	f := os.NewFile(uintptr(fd), "")
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return nil, err
+	}
 	return &Inotify{
-		File:   os.NewFile(uintptr(fd), ""),
-		FD:     fd,
-		Buffer: bytes.NewBuffer(make([]byte, 0, 4096)),
+		file:    f,
+		rawConn: rc,
+		Buffer:  bytes.NewBuffer(make([]byte, 0, 4096)),
 	}, nil
+}
+
+func (in *Inotify) Close() error {
+	return in.file.Close()
+}
+
+// We have to use syscall.RawConn to obtain the file descriptor because file.FD() sets the file descriptor to blocking
+// mode. We also can't permanently store the FD as if the file is closed, we won't detect it.
+func (in *Inotify) fd() (int, error) {
+	var fd uintptr
+	err := in.rawConn.Control(func(v uintptr) { fd = v })
+	return int(fd), err
 }
 
 // AddWatch adds the given path to the watch list and returns a new watch descriptor.
 // The watch descriptor can be provided to RemoveWatch() to stop watching.
 func (in *Inotify) AddWatch(pathname string, mask Mask) (InotifyWatchDesc, error) {
-	wd, err := syscall.InotifyAddWatch(in.FD, pathname, mask)
+	fd, err := in.fd()
+	if err != nil {
+		return 0, err
+	}
+	wd, err := syscall.InotifyAddWatch(fd, pathname, mask)
 	return InotifyWatchDesc(wd), err
 }
 
 // Removes the given watch descriptor from the watch list.
 func (in *Inotify) RemoveWatch(watchDesc InotifyWatchDesc) error {
-	_, err := syscall.InotifyRmWatch(in.FD, uint32(watchDesc))
+	fd, err := in.fd()
+	if err != nil {
+		return err
+	}
+	_, err = syscall.InotifyRmWatch(fd, uint32(watchDesc))
 	return err
 }
 
@@ -100,7 +123,7 @@ func (in *Inotify) Read() (Event, error) {
 	if in.Buffer.Len() == 0 {
 		in.Buffer.Reset()
 		buf := in.Buffer.Bytes()[:in.Buffer.Cap()]
-		n, err := in.File.Read(buf)
+		n, err := in.file.Read(buf)
 		if err != nil {
 			return Event{}, err
 		}
