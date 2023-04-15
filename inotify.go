@@ -78,6 +78,9 @@ func New() (*Inotify, error) {
 	if err != nil {
 		return nil, err
 	}
+	_ = rc.Control(func(fd uintptr) {
+		syscall.CloseOnExec(int(fd))
+	})
 	return &Inotify{
 		file:    f,
 		rawConn: rc,
